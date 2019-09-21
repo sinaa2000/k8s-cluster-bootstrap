@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+set -eu
+
+POD_CIDR="10.10.0.0/16"
+
+echo "~~ Initialising the control plane with default Pod CIDR: ${POD_CIDR}~~"
+kubeadm init --pod-network-cidr=${POD_CIDR}
+
+echo "~~ Copying kubeconfig files to your home directory ~~"
+mkdir -p $HOME/.kube
+cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+chown $(id -u):$(id -g) $HOME/.kube/config
+
+echo "~~ Installing Calico as the networking provider ~~"
+curl -O https://docs.projectcalico.org/v3.9/manifests/calico.yaml
+sed -i -e "s?192.168.0.0/16?${POD_CIDR}?g" calico.yaml
+kubectl apply -f calico.yaml
+
+echo "~~ All done! ~~"
+echo "~~ Run the printed join command in all of your worker nodes to finish bootstrapping your cluster ~~"
+echo "~~ Enjoy! ~~"
