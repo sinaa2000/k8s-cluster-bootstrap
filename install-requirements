@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ -z $1 ]; then
+    echo "Please provide a Kubernetes version to install"
+    exit 1
+fi
+
+K8S_VERSION=$1
+
+echo "~~ Disabling Swap memory ~~~"
+swapoff -a || true
+SWAPTOTAL=`cat /proc/meminfo | grep 'SwapTotal' | awk ' {print $2} '`
+if [ $SWAPTOTAL != 0 ]; then
+    echo "Failed to disable Swap memory"
+    echo "Warning: Kubernetes may still schedule apps on an overloaded node with Swap enabled"
+fi
+
+echo "~~ Adding necessary cli tools ~~"
+apt-get update && apt-get install -y apt-transport-https software-properties-common curl
+
+echo "~~ Removing old versions of docker ~~"
+apt-get remove -y docker docker-engine docker.io
+
+echo "~~ Adding docker GPG keys ~~"
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+
+echo "~~ Adding docker apt repository ~~"
+add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+
+echo "~~ Installing docker ~~"
+apt-get install -y docker-ce
+
+echo "~~ Creating a systemd directory for docker ~~"
+cat > /etc/docker/daemon.json <<EOF
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+mkdir -p /etc/systemd/system/docker.service.d
+
+echo "~~ Restarting docker service ~~"
+systemctl daemon-reload
+systemctl restart docker
+
+echo "~~ Adding kubernetes apt repository ~~"
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
+deb https://apt.kubernetes.io/ kubernetes-xenial main
+EOF
+
+echo "~~ Installing kubeadm, kubelet and kubectl v${K8S_VERSION} ~~"
+apt-get update
+apt-get install -y kubelet=${K8S_VERSION}-00 kubeadm=${K8S_VERSION}-00 kubectl=${K8S_VERSION}-00
+
+echo "~~ Setting kube components version to v${K8S_VERSION} ~~"
+apt-mark hold kubelet kubeadm kubectl
+
+echo "~~ All done! ~~"
